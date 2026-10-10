@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Does a Safe School Mean a Better School? — CPS 2011-2012</title>
+
+  <!-- Leaflet (map) from CDN; dashboard degrades gracefully if offline -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ============================================================
+       HEADER: title + global filters (section 1 & 2)
+       All charts below re-render whenever a filter changes.
+       ============================================================ -->
+  <header class="hero">
+    <div class="hero-top">
+      <div>
+        <h1>Does a Safe School Mean a Better School?</h1>
+        <p class="subtitle">
+          Interactive analysis of <strong>Chicago Public Schools Progress Report Cards, 2011&ndash;2012</strong>
+          &middot; <span id="hero-count">566</span> schools &middot; City of Chicago Data Portal
+        </p>
+      </div>
+      <label class="csv-load" title="Optionally load a different CSV with the same column layout">
+        <input type="file" id="csv-file" accept=".csv" hidden />
+        <span class="btn ghost">&ldquo;Load own CSV&rdquo;</span>
+      </label>
+    </div>
+
+    <div class="filters">
+      <div class="filter-group">
+        <span class="filter-label">School level</span>
+        <div class="seg" id="level-seg">
+          <button data-level="ALL" class="active">All</button>
+          <button data-level="ES">Elementary</button>
+          <button data-level="MS">Middle</button>
+          <button data-level="HS">High</button>
+        </div>
+      </div>
+
+      <div class="filter-group">
+        <span class="filter-label">Community area</span>
+        <select id="ca-select" aria-label="Community area"></select>
+      </div>
+
+      <div class="filter-group">
+        <span class="filter-label">Safety quartile</span>
+        <select id="quartile-select" aria-label="Safety quartile">
+          <option value="ALL">All quartiles</option>
+          <option value="Q1">Q1 &mdash; lowest 25%</option>
+          <option value="Q2">Q2 &mdash; 25&ndash;50%</option>
+          <option value="Q3">Q3 &mdash; 50&ndash;75%</option>
+          <option value="Q4">Q4 &mdash; top 25%</option>
+        </select>
+      </div>
+
+      <button class="btn ghost" id="reset-filters">Reset</button>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- SECTION 1 · KPI CARDS -->
+    <section class="card" id="kpi-section">
+      <div class="kpi-grid">
+        <div class="kpi">
+          <div class="kpi-value" id="kpi-count">&ndash;</div>
+          <div class="kpi-label">Schools analyzed</div>
+          <div class="kpi-sub" id="kpi-count-sub"></div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-value" id="kpi-safety">&ndash;</div>
+          <div class="kpi-label">Average Safety Score</div>
+          <div class="kpi-sub" id="kpi-safety-sub"></div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-value" id="kpi-instruction">&ndash;</div>
+          <div class="kpi-label">Average Instruction Score</div>
+          <div class="kpi-sub" id="kpi-instruction-sub"></div>
+        </div>
+        <div class="kpi accent">
+          <div class="kpi-value" id="kpi-r">&ndash;</div>
+          <div class="kpi-label">Safety vs Instruction (Pearson r)</div>
+          <div class="kpi-sub" id="kpi-r-sub"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 3 · THE BIG PICTURE -->
+    <section class="card" id="scatter-section">
+      <h2>The Big Picture</h2>
+      <p class="desc">
+        Each dot is one school: <strong>Safety Score</strong> (x) vs <strong>Instruction Score</strong> (y),
+        both on the 1&ndash;99 percentile scale. Dots are colored by school level; the dashed line is the
+        least-squares trend. Hover a dot for the school name.
+      </p>
+      <div id="scatter-chart" class="chart-tall"></div>
+      <p class="note" id="scatter-note"></p>
+    </section>
+
+    <!-- SECTION 4 · CLIMATE vs OUTCOMES HEATMAP -->
+    <section class="card" id="heatmap-section">
+      <h2>Climate vs Outcomes</h2>
+      <p class="desc">
+        Pearson correlation between each school-climate variable (rows) and each outcome variable (columns),
+        computed on the current filter scope with pairwise complete cases.
+        Blue = positive association, orange = negative. Cell color strength &prop; |r|.
+      </p>
+      <div id="heatmap-chart" class="chart-tall"></div>
+      <p class="note" id="heatmap-note"></p>
+    </section>
+
+    <div class="duo">
+
+      <!-- SECTION 5 · WHAT MATTERS MOST -->
+      <section class="card" id="predictors-section">
+        <h2>What Matters Most</h2>
+        <p class="desc">
+        Climate factors ranked by <strong>random-forest feature importance</strong> for predicting
+        <strong>ISAT Value Add</strong> (average of math &amp; reading value-add). Importance = each
+        factor&rsquo;s share of total prediction-error reduction across a small deterministic forest
+        (60 trees), chosen because the 8 climate variables are too correlated for a stable OLS
+        regression. Hover a bar for that factor&rsquo;s pairwise correlation with value-add.
+      </p>
+        <div id="predictor-chart"></div>
+        <p class="note" id="predictor-note"></p>
+      </section>
+
+      <!-- SECTION 6 · SAFE VS LESS SAFE -->
+      <section class="card" id="quartile-section">
+        <h2>Safe vs Less Safe Schools</h2>
+        <p class="desc">
+          Mean outcomes for the <strong>top 25%</strong> vs <strong>bottom 25%</strong> of schools by Safety
+          Score (quartiles computed within the current scope). Bars are scaled per metric; see the table
+          for exact means and sample sizes.
+        </p>
+        <div id="quartile-chart"></div>
+        <div id="quartile-table"></div>
+        <p class="note" id="quartile-note"></p>
+      </section>
+
+    </div>
+
+    <!-- SECTION 7 · BEATING THE ODDS -->
+    <section class="card" id="outliers-section">
+      <h2>Beating the Odds</h2>
+      <p class="desc">
+        Outliers defined within the current scope: safety and instruction are each split into quartiles.
+        <strong>(a)</strong>&nbsp;Safe-but-lagging: top-quartile Safety &times; bottom-quartile Instruction.
+        <strong>(b)</strong>&nbsp;Lagging-safe-but-strong: bottom-quartile Safety &times; top-quartile Instruction.
+      </p>
+      <div class="duo">
+        <div>
+          <h3 class="mini">Safe but lagging on outcomes</h3>
+          <div class="table-scroll"><table id="outliers-a"></table></div>
+        </div>
+        <div>
+          <h3 class="mini">Less safe but strong on outcomes</h3>
+          <div class="table-scroll"><table id="outliers-b"></table></div>
+        </div>
+      </div>
+      <p class="note" id="outliers-note"></p>
+    </section>
+
+    <!-- SECTION 8 · WHERE IN CHICAGO -->
+    <section class="card" id="map-section">
+      <h2>Where in Chicago?</h2>
+      <p class="desc">
+        Schools plotted by latitude/longitude and colored by the selected metric.
+        The community-area ranking on the right shows each area&rsquo;s average score.
+      </p>
+      <div class="map-grid">
+        <div class="metric-pick">
+          <label for="map-metric">Map &amp; table metric</label>
+          <select id="map-metric">
+            <option value="safety">Safety Score</option>
+            <option value="instruction">Instruction Score</option>
+            <option value="isatVA">ISAT Value Add (avg math/read)</option>
+            <option value="isatExMath">ISAT Exceeding Math %</option>
+            <option value="gradRate">Graduation Rate %</option>
+            <option value="act">11th Grade Avg ACT</option>
+            <option value="studAttend">Average Student Attendance %</option>
+            <option value="misconduct">Rate of Misconducts (per 100)</option>
+          </select>
+          <div class="legend" id="map-legend"></div>
+        </div>
+        <div id="map" aria-label="Map of CPS schools"></div>
+        <div class="ca-panel">
+          <h3 class="mini">Community areas by average <span id="ca-metric-name">Safety Score</span></h3>
+          <div class="ca-toggle">
+            <button data-ca-view="top" class="active">Top 10</button>
+            <button data-ca-view="bottom">Bottom 10</button>
+            <button data-ca-view="all">All</button>
+          </div>
+          <div class="table-scroll ca-scroll"><table id="ca-table"></table></div>
+        </div>
+      </div>
+      <p class="note" id="map-note">
+        If the map tiles don&rsquo;t load, you may be offline &mdash; the community-area table still ranks every area.
+      </p>
+    </section>
+
+    <!-- SECTION 9 · KEY FINDINGS + LIMITATIONS -->
+    <section class="card" id="findings-section">
+      <h2>Key Findings</h2>
+      <p class="desc">Plain-English takeaways computed live from the current data scope.</p>
+      <ul id="insights" class="insights"></ul>
+
+      <div class="limitations">
+        <h3>Limitations &mdash; read before over-interpreting</h3>
+        <ul>
+          <li><strong>Single-year snapshot.</strong> 2011&ndash;2012 report cards only; year-to-year swings and one-time events can dominate differences.</li>
+          <li><strong>Correlation &ne; causation.</strong> A safe climate and strong instruction may share hidden drivers (funding, leadership, neighborhood); we do not claim safety <em>causes</em> better instruction.</li>
+          <li><strong>Missing data, not imputed.</strong> Scores are null wherever the source is blank or &ldquo;NDA&rdquo;; each analysis uses only complete cases and reports its <em>n</em>. No values were filled in.</li>
+          <li><strong>Small middle-school sample.</strong> Only 11 middle schools report card data, so any MS-only statistic is fragile.</li>
+          <li><strong>Metric scope.</strong> ISAT value-add mostly covers ES/MS, while graduation/ACT/college-enrollment cover HS; grouped comparisons always state which population is included.</li>
+        </ul>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    Source: City of Chicago Data Portal &mdash; <em>Chicago Public Schools &ndash; Progress Report Cards (2011&ndash;2012)</em>.
+    Scores are percentile-style (1&ndash;99). Percentages &ldquo;NDA&rdquo; / &ldquo;N/A&rdquo; / blanks are treated as missing and excluded per analysis.
+  </footer>
+
+  <!-- Tooltip (shared by all hover interactions) -->
+  <div id="tooltip" class="tooltip" role="tooltip"></div>
+
+  <!-- Data first, then the app. data.js ships with this dashboard and is
+       generated from data/chicago_public_schools.csv (566 rows). -->
+  <script src="data.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
